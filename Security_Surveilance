@@ -1,0 +1,133 @@
+import cv2
+import time
+from gpiozero import Buzzer
+
+# GPIO pin connected to the buzzer
+BUZZER_PIN = 18
+
+buzzer = Buzzer(BUZZER_PIN)
+
+# Open camera
+camera = cv2.VideoCapture(0)
+
+if not camera.isOpened():
+    print("Error: Could not open camera.")
+    exit()
+
+# Read the first frame
+ret, frame = camera.read()
+
+if not ret:
+    print("Error: Could not read from camera.")
+    camera.release()
+    exit()
+
+# Convert first frame to grayscale
+previous = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+previous = cv2.GaussianBlur(previous, (21, 21), 0)
+
+print("Security surveillance started.")
+print("Press 'q' to quit.")
+
+last_alarm = 0
+alarm_duration = 2
+
+while True:
+    ret, frame = camera.read()
+
+    if not ret:
+        print("Camera disconnected.")
+        break
+
+    # Convert current frame to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+    # Find difference between previous and current frame
+    difference = cv2.absdiff(previous, gray)
+
+    # Threshold the difference
+    _, threshold = cv2.threshold(difference, 25, 255, cv2.THRESH_BINARY)
+
+    # Dilate to make moving objects more visible
+    threshold = cv2.dilate(threshold, None, iterations=2)
+
+    # Find contours
+    contours, _ = cv2.findContours(
+        threshold,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    motion_detected = False
+
+    for contour in contours:
+        # Ignore very small movements/noise
+        if cv2.contourArea(contour) < 1500:
+            continue
+
+        motion_detected = True
+
+        # Draw rectangle around moving object
+        x, y, w, h = cv2.boundingRect(contour)
+        cv2.rectangle(
+            frame,
+            (x, y),
+            (x + w, y + h),
+            (0, 0, 255),
+            2
+        )
+
+    # Activate buzzer when motion is detected
+    if motion_detected:
+        cv2.putText(
+            frame,
+            "INTRUSION DETECTED!",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 255),
+            2
+        )
+
+        # Prevent buzzer from continuously restarting
+        current_time = time.time()
+
+        if current_time - last_alarm > alarm_duration:
+            buzzer.on()
+            time.sleep(0.5)
+            buzzer.off()
+            last_alarm = current_time
+
+    else:
+        cv2.putText(
+            frame,
+            "SYSTEM ARMED",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 255, 0),
+            2
+        )
+
+    # Display camera feed
+    cv2.imshow("Security Surveillance", frame)
+
+    # Update previous frame
+    previous = gray
+
+    # Press q to exit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Cleanup
+buzzer.off()
+camera.release()
+cv2.destroyAllWindows()
+
+Libraries
+sudo apt update
+sudo apt install python3-opencv
+
+
+
